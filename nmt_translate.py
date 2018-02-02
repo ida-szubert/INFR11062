@@ -6,7 +6,6 @@ Neural Machine Translation - Translation experiments
 '''
 #---------------------------------------------------------------------
 
-# In[ ]:
 
 import numpy as np
 import chainer
@@ -28,26 +27,20 @@ import csv
 import time
 import matplotlib.gridspec as gridspec
 import importlib
-# %matplotlib inline
 
-# In[ ]:
 
 #---------------------------------------------------------------------
 # Load configuration
 #---------------------------------------------------------------------
 from nmt_config import *
 
-# In[ ]:
 #---------------------------------------------------------------------
 # Load encoder decoder model definition
 #---------------------------------------------------------------------
 from enc_dec import *
 
-# In[ ]:
-
 xp = cuda.cupy if gpuid >= 0 else np
 
-# In[ ]:
 #---------------------------------------------------------------------
 # Load dataset
 #---------------------------------------------------------------------
@@ -58,9 +51,8 @@ vocab_size_en = min(len(i2w["en"]), max_vocab_size["en"])
 vocab_size_fr = min(len(i2w["fr"]), max_vocab_size["fr"])
 print("vocab size, en={0:d}, fr={1:d}".format(vocab_size_en, vocab_size_fr))
 print("{0:s}".format("-"*50))
-#---------------------------------------------------------------------
 
-# In[ ]:
+
 #---------------------------------------------------------------------
 # Set up model
 #---------------------------------------------------------------------
@@ -71,18 +63,21 @@ if gpuid >= 0:
     cuda.get_device(gpuid).use()
     model.to_gpu()
 
-optimizer = optimizers.Adam()
-optimizer.setup(model)
+optimizer_adam = optimizers.Adam()
+optimizer_adam.setup(model)
+
+optimizer_sgd = optimizers.SGD()
+optimizer_sgd.setup(model)
 
 '''
 ___QUESTION-1-DESCRIBE-F-START___
 
-- Describe what the following line of code does
+- Describe what the following lines of code do
 '''
-optimizer.add_hook(chainer.optimizer.GradientClipping(threshold=5))
+optimizer_adam.add_hook(chainer.optimizer.GradientClipping(threshold=5))
+optimizer_sgd.add_hook(chainer.optimizer.GradientClipping(threshold=5))
 '''___QUESTION-1-DESCRIBE-F-END___'''
 
-# In[ ]:
 
 #---------------------------------------------------------------------
 print("Training progress will be logged in:\n\t{0:s}".format(log_train_fil_name))
@@ -91,7 +86,7 @@ print("Trained model will be saved as:\n\t{0:s}".format(model_fil))
 print("{0:s}".format("-"*50))
 #---------------------------------------------------------------------
 
-# In[ ]:
+
 #---------------------------------------------------------------------
 # Evaluation utilities
 #---------------------------------------------------------------------
@@ -122,11 +117,7 @@ def compute_dev_pplx():
                     pbar.set_description(out_str)
                     pbar.update(1)
                     num_sents += 1
-                
-            # end for
-        # end pbar
-    # end with open file
-    #loss_per_word = loss / num_words
+
     loss_per_sentence = loss / num_sents
     pplx = 2 ** loss_per_sentence
 
@@ -137,7 +128,7 @@ def compute_dev_pplx():
 
     return pplx
 
-# In[ ]:
+
 #---------------------------------------------------------------------
 # Compute Bleu score
 #---------------------------------------------------------------------
@@ -150,6 +141,7 @@ def bleu_stats(hypothesis, reference):
         yield max([sum((s_ngrams & r_ngrams).values()), 0])
         yield max([len(hypothesis)+1-n, 0])
 
+
 # Compute BLEU from collected statistics obtained by call(s) to bleu_stats
 def bleu(stats):
     if len(list(filter(lambda x: x==0, stats))) > 0:
@@ -157,6 +149,7 @@ def bleu(stats):
     (c, r) = stats[:2]
     log_bleu_prec = sum([math.log(float(x)/y) for x,y in zip(stats[2::2],stats[3::2])]) / 4.
     return math.exp(min([0, 1-float(r)/c]) + log_bleu_prec)
+
 
 def compute_dev_bleu():
     list_of_references = []
@@ -186,7 +179,7 @@ def compute_dev_bleu():
     print("BLEU: {0:0.3f}".format(bleu_score))
     return bleu_score
 
-# In[ ]:
+
 #---------------------------------------------------------------------
 # Main training loop
 #---------------------------------------------------------------------
@@ -226,7 +219,11 @@ def train_loop(text_fname, num_training, num_epochs, log_mode="a"):
                     # backprop
                     loss.backward()
                     # update parameters
-                    optimizer.update()
+                    # we optimize with Adam for the first 4 epochs and switch to SGD afterwards
+                    if epoch < 4:
+                        optimizer_adam.update()
+                    else:
+                        optimizer_sgd.update()
                     # store loss value for display
                     loss_val = float(loss.data) / len(en_ids)
                     loss_per_epoch += loss_val
@@ -255,6 +252,7 @@ def train_loop(text_fname, num_training, num_epochs, log_mode="a"):
         print("{0:s}".format("-"*50))
         print("computing perplexity")
         pplx = compute_dev_pplx()
+        log_train_csv.writerow([epoch, pplx])
 
         # Backup model every epoch
         print("Saving model")
@@ -268,6 +266,7 @@ def train_loop(text_fname, num_training, num_epochs, log_mode="a"):
             bleu_score = compute_dev_bleu()
             print("finished computing bleu ... ")
             print("{0:s}".format("-"*50))
+            log_train_csv.writerow([epoch, bleu_score])
         
     # At the end of training, make some predictions
     # make predictions over both training and dev sets
@@ -291,19 +290,20 @@ def train_loop(text_fname, num_training, num_epochs, log_mode="a"):
     print(log_train_fil_name)
     print(model_fil)
 
-# In[ ]:
+
 #---------------------------------------------------------------------
 # __QUESTION -- Following code is to assist with ATTENTION
 #---------------------------------------------------------------------
 from matplotlib.font_manager import FontProperties
-'''
-Support function to plot attention vectors
-'''
+
+
 def plot_attention(alpha_arr, fr, en, plot_name=None):
+    '''
+    Support function to plot attention vectors
+    '''
     if gpuid >= 0:
         alpha_arr = cuda.to_cpu(alpha_arr).astype(np.float32)
 
-    #alpha_arr /= np.max(np.abs(alpha_arr),axis=0)
     fig = plt.figure()
     fig.set_size_inches(8, 8)
 
@@ -335,7 +335,6 @@ def plot_attention(alpha_arr, fr, en, plot_name=None):
     if plot_name:
         fig.savefig(plot_name, format="png")
 
-# In[ ]:
 
 #---------------------------------------------------------------------
 # Helper function for prediction
@@ -362,7 +361,7 @@ def predict_sentence(line_fr, line_en=None, display=True,
     prec = matches/len(pred_ids)
     rec = matches/len(en_ids)
 
-    if display and (prec >= p_filt and rec >= r_filt):
+    if display and (preci >= p_filt and rec >= r_filt):
         filter_match = True
         # convert raw binary into string
         fr_words = [w.decode() for w in fr_sent]
@@ -382,21 +381,20 @@ def predict_sentence(line_fr, line_en=None, display=True,
 
     return matches, len(pred_ids), len(en_ids), filter_match
 
-# In[ ]:
-#---------------------------------------------------------------------
-'''
-Function to make predictions.
-s       : starting index of the line in the parallel data from which to make predictions
-num     : number of lines starting from "s" to make predictions for
-plot    : plot attention if True
-display : whether to display additional info
-p_filt  : precision filter. Only displays predicted sentences with precision above p_filt
-r_filt  : recall filter. Only displays predicted sentences with recall above p_filt
-sample  : if False, predict word with maximum probability in the model, else sample
-'''
+
 #---------------------------------------------------------------------
 def predict(s=NUM_TRAINING_SENTENCES, num=NUM_DEV_SENTENCES, 
             display=True, plot=False, p_filt=0, r_filt=0, sample=False):
+    '''
+    Function to make predictions.
+    s       : starting index of the line in the parallel data from which to make predictions
+    num     : number of lines starting from "s" to make predictions for
+    plot    : plot attention if True
+    display : whether to display additional info
+    p_filt  : precision filter. Only displays predicted sentences with precision above p_filt
+    r_filt  : recall filter. Only displays predicted sentences with recall above p_filt
+    sample  : if False, predict word with maximum probability in the model, else sample
+    '''
     
     if display:
         print("English predictions, s={0:d}, num={1:d}:".format(s, num))
@@ -431,7 +429,6 @@ def predict(s=NUM_TRAINING_SENTENCES, num=NUM_DEV_SENTENCES,
     return metrics
 
 
-# In[ ]:
 #---------------------------------------------------------------------
 # Helper function to compute precision recall
 #---------------------------------------------------------------------
@@ -444,12 +441,10 @@ def count_match(list1, list2):
     matches = sum([min(count1[w], count2[w]) for w in common_w])
     return matches
 
-# In[ ]:
 
 #---------------------------------------------------------------------
 # Main -- program execution starts here
 #---------------------------------------------------------------------
-
 def main():
     print("Existing model {0:s}".format("found" if os.path.exists(model_fil) else "not found!"))
     print("{0:s}".format("-"*50))

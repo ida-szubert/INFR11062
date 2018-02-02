@@ -7,7 +7,6 @@ Neural Machine Translation - Encoder Decoder model
 '''
 #---------------------------------------------------------------------
 
-# In[]:
 
 import numpy as np
 import chainer
@@ -20,12 +19,9 @@ from chainer.training import extensions
 from chainer.functions.array import concat
 
 
-# In[]:
 # Import configuration file
-
 from nmt_config import *
 
-# In[]:
 
 class EncoderDecoder(Chain):
 
@@ -44,6 +40,7 @@ class EncoderDecoder(Chain):
         #--------------------------------------------------------------------
         # add encoder layers
         #--------------------------------------------------------------------
+
         # add embedding layer
         self.add_link("embed_enc", L.EmbedID(vsize_enc, n_units))
 
@@ -68,6 +65,7 @@ class EncoderDecoder(Chain):
         #--------------------------------------------------------------------
         # add decoder layers
         #--------------------------------------------------------------------
+
         # add embedding layer
         '''
         ___QUESTION-1-DESCRIBE-B-START___
@@ -147,20 +145,20 @@ class EncoderDecoder(Chain):
     def decode(self, word, train):
         self.feed_lstm(word, self.embed_dec, self.lstm_dec, train)
 
-    '''
-
-    '''
     def encode_list(self, in_word_list, train=True):
         xp = cuda.cupy if self.gpuid >= 0 else np
         # convert list of tokens into chainer variable list
-        var_en = (Variable(xp.asarray(in_word_list, dtype=np.int32).reshape((-1,1)),
-                           volatile=(not train)))
+        if train:
+            var_en = (Variable(xp.asarray(in_word_list, dtype=np.int32).reshape((-1,1))))
 
-        var_rev_en = (Variable(xp.asarray(in_word_list[::-1], dtype=np.int32).reshape((-1,1)),
-                           volatile=(not train)))
+            var_rev_en = (Variable(xp.asarray(in_word_list[::-1], dtype=np.int32).reshape((-1,1))))
+        else:
+            with chainer.no_backprop_mode():
+                var_en = (Variable(xp.asarray(in_word_list, dtype=np.int32).reshape((-1,1))))
 
-        # array to store hidden states for each word
-        # enc_states = xp.empty((0,2*self.n_units), dtype=xp.float32)
+                var_rev_en = (Variable(xp.asarray(in_word_list[::-1], dtype=np.int32).reshape((-1,1))))
+
+
         first_entry = True
 
         # encode tokens
@@ -191,14 +189,18 @@ class EncoderDecoder(Chain):
 
         return enc_states
 
-
     # Select a word from a probability distribution
     # should return a chainer variable
     def select_word(self, prob, train=True, sample=False):
         xp = cuda.cupy if self.gpuid >= 0 else np
         if not sample:
             indx = xp.argmax(prob.data[0])
-            pred_word = Variable(xp.asarray([indx], dtype=np.int32), volatile=not train)
+            if not train:
+                with chainer.no_backprop_mode():
+                    pred_word = Variable(xp.asarray([indx], dtype=np.int32))
+            else:
+                pred_word = Variable(xp.asarray([indx], dtype=np.int32))
+
         else:
             '''
             ___QUESTION-2-SAMPLE
@@ -209,7 +211,7 @@ class EncoderDecoder(Chain):
             pass
         return pred_word
 
-    def encode_decode_train(self, in_word_list, out_word_list, train=True, sample=False):
+    def encode_decode_train(self, in_word_list, out_word_list, train=True):
         xp = cuda.cupy if self.gpuid >= 0 else np
         self.reset_state()
         # Add GO_ID, EOS_ID to decoder input
@@ -219,11 +221,17 @@ class EncoderDecoder(Chain):
         # initialize decoder LSTM to final encoder state
         self.set_decoder_state()
         # decode and compute loss
-        # convert list of tokens into chainer variable list
-        var_dec = (Variable(xp.asarray(decoder_word_list, dtype=np.int32).reshape((-1,1)),
-                            volatile=not train))
-        # Initialise first decoded word to GOID
-        pred_word = Variable(xp.asarray([GO_ID], dtype=np.int32), volatile=not train)
+        if not train:
+            with chainer.no_backprop_mode():
+                # convert list of tokens into chainer variable list
+                var_dec = (Variable(xp.asarray(decoder_word_list, dtype=np.int32).reshape((-1,1))))
+                # Initialise first decoded word to GOID
+                pred_word = Variable(xp.asarray([GO_ID], dtype=np.int32))
+        else:
+            # convert list of tokens into chainer variable list
+            var_dec = (Variable(xp.asarray(decoder_word_list, dtype=np.int32).reshape((-1,1))))
+            # Initialise first decoded word to GOID
+            pred_word = Variable(xp.asarray([GO_ID], dtype=np.int32))
 
         # compute loss
         self.loss = 0
@@ -240,7 +248,6 @@ class EncoderDecoder(Chain):
             prob = F.softmax(predicted_out)
 
             pred_word = self.select_word(prob, train=train, sample=False)
-            # pred_word = Variable(xp.asarray([pred_word.data], dtype=np.int32), volatile=not train)
             '''
             ___QUESTION-1-DESCRIBE-E-START___
             Explain what loss is computed with an example
@@ -263,7 +270,8 @@ class EncoderDecoder(Chain):
         # return list of predicted words
         predicted_sent = []
         # load start symbol
-        pred_word = Variable(xp.asarray([start_word], dtype=np.int32), volatile=True)
+        with chainer.no_backprop_mode():
+            pred_word = Variable(xp.asarray([start_word], dtype=np.int32))
         pred_count = 0
 
         # start prediction loop
@@ -299,4 +307,3 @@ class EncoderDecoder(Chain):
                                                          max_predict_len, sample=sample)
         return predicted_sent, alpha_arr
 
-# In[]:
