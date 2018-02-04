@@ -1,4 +1,3 @@
-Remaining files:
 - enc_dec.py    --- implementation of a basic encoder-decoder
 - nmt_translate.py --- source code to load data and run training and evaluation
 - nmt_config.py       --- neural model parameters, data selection, etc.

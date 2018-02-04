@@ -155,21 +155,25 @@ def compute_dev_bleu():
     list_of_references = []
     list_of_hypotheses = []
     with open(text_fname["fr"], "rb") as fr_file, open(text_fname["en"], "rb") as en_file:
-        for i, (line_fr, line_en) in enumerate(zip(fr_file, en_file), start=1):
-            if i > NUM_TRAINING_SENTENCES and i <= (NUM_TRAINING_SENTENCES + NUM_DEV_SENTENCES):
-                fr_sent = line_fr.strip().split()
-                en_sent = line_en.strip().split()
+        with tqdm(total=NUM_DEV_SENTENCES) as pbar:
+            sys.stderr.flush()
+            for i, (line_fr, line_en) in enumerate(zip(fr_file, en_file), start=1):
+                if i > NUM_TRAINING_SENTENCES and i <= (NUM_TRAINING_SENTENCES + NUM_DEV_SENTENCES):
+                    pbar.update(1)
 
-                fr_ids = [w2i["fr"].get(w, UNK_ID) for w in fr_sent]
-                en_ids = [w2i["en"].get(w, UNK_ID) for w in en_sent]
+                    fr_sent = line_fr.strip().split()
+                    en_sent = line_en.strip().split()
 
-                list_of_references.append(line_en.strip().decode())
-                pred_sent, alpha_arr = model.encode_decode_predict(fr_ids, max_predict_len=MAX_PREDICT_LEN)
-                pred_words = [i2w["en"][w].decode() for w in pred_sent if w != EOS_ID]
-                pred_sent_line = " ".join(pred_words)
-                list_of_hypotheses.append(pred_sent_line)
-            if i > (NUM_TRAINING_SENTENCES + NUM_DEV_SENTENCES):
-                break
+                    fr_ids = [w2i["fr"].get(w, UNK_ID) for w in fr_sent]
+                    en_ids = [w2i["en"].get(w, UNK_ID) for w in en_sent]
+
+                    list_of_references.append(line_en.strip().decode())
+                    pred_sent, alpha_arr = model.encode_decode_predict(fr_ids, max_predict_len=MAX_PREDICT_LEN)
+                    pred_words = [i2w["en"][w].decode() for w in pred_sent if w != EOS_ID]
+                    pred_sent_line = " ".join(pred_words)
+                    list_of_hypotheses.append(pred_sent_line)
+                if i > (NUM_TRAINING_SENTENCES + NUM_DEV_SENTENCES):
+                    break
 
     stats = [0 for i in range(10)]
     for (r,h) in zip(list_of_references, list_of_hypotheses):
