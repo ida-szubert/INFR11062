@@ -365,7 +365,7 @@ def predict_sentence(line_fr, line_en=None, display=True,
     prec = matches/len(pred_ids)
     rec = matches/len(en_ids)
 
-    if display and (preci >= p_filt and rec >= r_filt):
+    if display and (prec >= p_filt and rec >= r_filt):
         filter_match = True
         # convert raw binary into string
         fr_words = [w.decode() for w in fr_sent]
